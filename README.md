@@ -39,6 +39,12 @@ You can install the package without cloning:
 pip install git+https://github.com/ma-ji/zotero-pdf2md.git
 ```
 
+To upgrade the package to the latest version from GitHub:
+
+```bash
+pip install --upgrade git+https://github.com/ma-ji/zotero-pdf2md.git
+```
+
 To install a specific tag or branch, append `@ref`, for example:
 
 ```bash
