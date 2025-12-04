@@ -1,4 +1,4 @@
-"""PDF to Markdown conversion helpers using PyMuPDF4LLM."""
+"""Attachment-to-Markdown conversion helpers using Docling."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-import pymupdf4llm
+from docling.document_converter import DocumentConverter
 
 from .models import AttachmentMetadata
 from .settings import ExportSettings
@@ -90,7 +90,16 @@ class ConversionResult:
 
 
 def _render_markdown(pdf_path: Path, markdown_options: dict[str, Any]) -> str:
-    options = dict(markdown_options)
-    options.setdefault("doc", str(pdf_path))
-    # Ensure doc parameter is not duplicated
-    return pymupdf4llm.to_markdown(**options)
+    """Render a local document to Markdown using Docling.
+
+    Currently ``markdown_options`` is accepted for forward compatibility but
+    not actively mapped into Docling's configuration.
+    """
+    converter = DocumentConverter()
+    result = converter.convert(str(pdf_path))
+
+    if result.document is None:
+        msg = f"Docling conversion failed for {pdf_path}: {result.status}"
+        raise RuntimeError(msg)
+
+    return result.document.export_to_markdown()

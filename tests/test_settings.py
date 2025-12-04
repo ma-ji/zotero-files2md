@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from zotero_pdf2md.settings import ExportSettings
-from zotero_pdf2md.utils import compute_output_path
-from zotero_pdf2md.models import AttachmentMetadata
+from zotero_files2md.settings import ExportSettings
+from zotero_files2md.utils import compute_output_path
+from zotero_files2md.models import AttachmentMetadata
 
 
 def test_settings_initialisation(tmp_path: Path) -> None:

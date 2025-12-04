@@ -1,4 +1,4 @@
-"""High-level orchestration for exporting Zotero PDFs to Markdown."""
+"""High-level orchestration for exporting Zotero-managed attachments to Markdown."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def export_library(settings: ExportSettings) -> ExportSummary:
 
     results: list[ConversionResult] = []
 
-    with TemporaryDirectory(prefix="zotero-pdf2md-") as tmp_dir:
+    with TemporaryDirectory(prefix="zotero-files2md-") as tmp_dir:
         temp_dir = Path(tmp_dir)
 
         with ZoteroClient(settings) as client:

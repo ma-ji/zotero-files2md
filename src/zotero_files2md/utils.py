@@ -1,4 +1,4 @@
-"""Utility helpers for the ``zotero_pdf2md`` package."""
+"""Utility helpers for the ``zotero_files2md`` package."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Iterable
 if TYPE_CHECKING:
     from .models import AttachmentMetadata
 
-LOGGER_NAME = "zotero_pdf2md"
+LOGGER_NAME = "zotero_files2md"
 
 
 def get_logger() -> logging.Logger:
@@ -63,9 +63,7 @@ def flatten(iterables: Iterable[Iterable[str]]) -> set[str]:
     return result
 
 
-def compute_output_path(
-    attachment: "AttachmentMetadata", output_dir: Path
-) -> Path:
+def compute_output_path(attachment: "AttachmentMetadata", output_dir: Path) -> Path:
     """Compute the expected output path for an attachment.
 
     Args:
@@ -75,8 +73,6 @@ def compute_output_path(
     Returns:
         The full path where the markdown file would be written.
     """
-    parent_slug = slugify(
-        attachment.parent_title, attachment.parent_item_key or "item"
-    )
+    parent_slug = slugify(attachment.parent_title, attachment.parent_item_key or "item")
     filename_base = slugify(attachment.title, attachment.attachment_key)
     return output_dir / parent_slug / f"{filename_base}.md"

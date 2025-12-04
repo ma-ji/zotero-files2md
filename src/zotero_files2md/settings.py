@@ -1,4 +1,4 @@
-"""Configuration management for the ``zotero_pdf2md`` exporter."""
+"""Configuration management for the ``zotero_files2md`` exporter."""
 
 from __future__ import annotations
 

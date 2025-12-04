@@ -1,6 +1,6 @@
-# zotero-pdf2md
+# zotero-files2md
 
-Export PDF attachments stored in a Zotero library to Markdown using [PyMuPDF4LLM](https://github.com/pymupdf/pymupdf), driven entirely through the official Zotero Web API via [PyZotero](https://github.com/urschrei/pyzotero).
+Export PDF attachments stored in a Zotero library to Markdown using [Docling](https://github.com/docling-project/docling), driven entirely through the official Zotero Web API via [PyZotero](https://github.com/urschrei/pyzotero).
 
 ## Features
 
@@ -36,32 +36,32 @@ pip install -e .[dev]
 You can install the package without cloning:
 
 ```bash
-pip install git+https://github.com/ma-ji/zotero-pdf2md.git
+pip install git+https://github.com/ma-ji/zotero-files2md.git#egg=zotero-files2md
 ```
 
 To upgrade the package to the latest version from GitHub:
 
 ```bash
-pip install --upgrade git+https://github.com/ma-ji/zotero-pdf2md.git
+pip install --upgrade git+https://github.com/ma-ji/zotero-files2md.git#egg=zotero-files2md
 ```
 
 To install a specific tag or branch, append `@ref`, for example:
 
 ```bash
-pip install git+https://github.com/ma-ji/zotero-pdf2md.git@v0.1.0
-pip install git+https://github.com/ma-ji/zotero-pdf2md.git@main
+pip install git+https://github.com/ma-ji/zotero-files2md.git@v0.1.0#egg=zotero-files2md
+pip install git+https://github.com/ma-ji/zotero-files2md.git@main#egg=zotero-files2md
 ```
 
 You can also install extras (for example, development dependencies) with:
 
 ```bash
-pip install "git+https://github.com/ma-ji/zotero-pdf2md.git#egg=zotero-pdf2md[dev]"
+pip install "git+https://github.com/ma-ji/zotero-files2md.git#egg=zotero-files2md[dev]"
 ```
 
 ## CLI Usage
 
 ```bash
-zotero-pdf2md export \
+zotero-files2md export \
     ./markdown-output \
     --api-key "$ZOTERO_API_KEY" \
     --library-id 123456 \
@@ -95,7 +95,7 @@ zotero-pdf2md export \
 | `--overwrite` | Overwrite existing Markdown files instead of skipping. |
 | `--skip-existing` | Skip downloading PDFs if the target Markdown file already exists locally. |
 | `--dry-run` | List target files without downloading PDFs or writing Markdown. |
-| `--option/-o KEY=VALUE` | Forward options to `pymupdf4llm.to_markdown`. Use multiple times for multiple options. |
+| `--option/-o KEY=VALUE` | Forward options to the Docling converter (currently accepted for forward compatibility; most options are not yet mapped into Docling's configuration). |
 | `--log-level LEVEL` | Logging verbosity (`critical`, `error`, `warning`, `info`, `debug`). Default: `info`. |
 
 ### Markdown Output Layout
@@ -120,8 +120,8 @@ For example:
 
 ```python
 from pathlib import Path
-from zotero_pdf2md import export_library
-from zotero_pdf2md.settings import ExportSettings
+from zotero_files2md import export_library
+from zotero_files2md.settings import ExportSettings
 
 settings = ExportSettings(
     api_key="your-api-key",

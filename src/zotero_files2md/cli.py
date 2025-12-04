@@ -1,4 +1,4 @@
-"""Command-line interface for the ``zotero-pdf2md`` package."""
+"""Command-line interface for the ``zotero-files2md`` package."""
 
 from __future__ import annotations
 
@@ -116,7 +116,11 @@ def export_command(
         (),
         "--option",
         "-o",
-        help="Additional pymupdf4llm.to_markdown options as key=value pairs.",
+        help=(
+            "Additional Docling conversion options as key=value pairs. "
+            "Currently accepted for forward compatibility; most options are "
+            "not yet mapped into Docling's configuration."
+        ),
     ),
     log_level: str = typer.Option(
         "info",
