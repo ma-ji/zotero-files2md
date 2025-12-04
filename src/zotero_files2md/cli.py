@@ -13,7 +13,10 @@ from .utils import get_logger
 
 app = typer.Typer(
     add_completion=False,
-    help="Export PDF attachments from a Zotero library to Markdown files using the Web API.",
+    help=(
+        "Export file attachments from a Zotero library to Markdown files "
+        "using Docling and the Zotero Web API."
+    ),
 )
 
 LOG_LEVELS = {
@@ -105,12 +108,18 @@ def export_command(
     skip_existing: bool = typer.Option(
         False,
         "--skip-existing",
-        help="Skip downloading PDFs if the target Markdown file already exists locally.",
+        help=(
+            "Skip downloading attachments if the target Markdown file already "
+            "exists locally."
+        ),
     ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="List target files without writing Markdown output or downloading attachments.",
+        help=(
+            "List target files without downloading attachments or "
+            "writing Markdown output."
+        ),
     ),
     markdown_option: tuple[str, ...] = typer.Option(
         (),
@@ -129,7 +138,7 @@ def export_command(
         help="Logging verbosity (critical, error, warning, info, debug).",
     ),
 ) -> None:
-    """Export PDF attachments managed by a Zotero library via the Web API."""
+    """Export file attachments managed by a Zotero library via the Web API."""
     level = log_level.lower()
     if level not in LOG_LEVELS:
         raise typer.BadParameter(f"Invalid log level: {log_level}")

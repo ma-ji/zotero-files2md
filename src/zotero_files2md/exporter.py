@@ -29,7 +29,11 @@ class ExportSummary:
 
 
 def export_library(settings: ExportSettings) -> ExportSummary:
-    """Export all matching Zotero PDF attachments to Markdown via the Web API."""
+    """Export all matching Zotero attachments to Markdown via the Web API.
+
+    All imported file attachments are considered; conversion is delegated to
+    Docling, which may skip unsupported formats.
+    """
     logger.info("Starting export via Zotero Web API")
     for line in settings.to_cli_summary():
         logger.info(line)
@@ -40,7 +44,10 @@ def export_library(settings: ExportSettings) -> ExportSummary:
         temp_dir = Path(tmp_dir)
 
         with ZoteroClient(settings) as client:
-            attachments = list(client.iter_pdf_attachments())
+            # Fetch all imported attachments regardless of MIME type; Docling
+            # will perform format-specific handling and may skip unsupported
+            # files during conversion.
+            attachments = list(client.iter_attachments())
 
         total_attachments = len(attachments)
         if total_attachments == 0:
@@ -51,9 +58,9 @@ def export_library(settings: ExportSettings) -> ExportSummary:
 
         if settings.dry_run:
             for attachment in attachments:
-                pdf_path = temp_dir / f"{attachment.attachment_key}.pdf"
+                file_path = _temp_path_for_attachment(temp_dir, attachment)
                 results.append(
-                    convert_attachment_to_markdown(attachment, pdf_path, settings)
+                    convert_attachment_to_markdown(attachment, file_path, settings)
                 )
             return summarize_results(results)
 
@@ -76,7 +83,7 @@ def export_library(settings: ExportSettings) -> ExportSummary:
                 )
                 results.append(
                     ConversionResult(
-                        source=Path(f"{attachment.attachment_key}.pdf"),
+                        source=Path(attachment.filename or attachment.attachment_key),
                         output=output_path,
                         status="skipped",
                     )
@@ -90,7 +97,9 @@ def export_library(settings: ExportSettings) -> ExportSummary:
                     )
                     results.append(
                         ConversionResult(
-                            source=Path(f"{attachment.attachment_key}.pdf"),
+                            source=Path(
+                                attachment.filename or attachment.attachment_key
+                            ),
                             output=output_path,
                             status="skipped",
                         )
@@ -136,7 +145,7 @@ def export_library(settings: ExportSettings) -> ExportSummary:
                 )
 
                 convert_future = conversion_executor.submit(
-                    convert_attachment_to_markdown, attachment, pdf_path, settings
+                    convert_attachment_to_markdown, attachment, file_path, settings
                 )
                 conversion_futures[convert_future] = attachment.attachment_key
 
@@ -164,14 +173,26 @@ def export_library(settings: ExportSettings) -> ExportSummary:
     return summarize_results(results)
 
 
+def _temp_path_for_attachment(base_dir: Path, attachment: AttachmentMetadata) -> Path:
+    """Return a temporary path for a downloaded attachment.
+
+    The path incorporates the Zotero attachment key and, when available, the
+    original file extension to help Docling with format detection.
+    """
+    filename = attachment.filename or attachment.attachment_key
+    suffix = Path(filename).suffix
+    name = f"{attachment.attachment_key}{suffix}"
+    return base_dir / name
+
+
 def download_and_save(
-    settings: ExportSettings, attachment_key: str, pdf_path: Path
+    settings: ExportSettings, attachment_key: str, file_path: Path
 ) -> None:
     """Download a single attachment; designed to be run in a worker thread."""
     if settings.dry_run:
         return
     with ZoteroClient(settings) as client:
-        client.download_attachment(attachment_key, pdf_path)
+        client.download_attachment(attachment_key, file_path)
 
 
 def summarize_results(results: Sequence[ConversionResult]) -> ExportSummary:

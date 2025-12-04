@@ -52,10 +52,22 @@ class ZoteroClient(AbstractContextManager["ZoteroClient"]):
         logger.debug("Closing ZoteroClient")
 
     # --- public API ---------------------------------------------------------------
-    def iter_pdf_attachments(self) -> Iterator[AttachmentMetadata]:
-        """Yield PDF attachments that satisfy configured filters."""
+    def iter_attachments(
+        self, *, content_types: Iterable[str] | None = None
+    ) -> Iterator[AttachmentMetadata]:
+        """Yield file attachments that satisfy configured filters.
+
+        Args:
+            content_types: Optional iterable of MIME types to include (e.g.
+                {"application/pdf", "application/msword"}). When omitted,
+                all imported attachments are yielded regardless of type.
+        """
         yielded = 0
         seen_keys: set[str] = set()
+
+        content_type_filter = (
+            {ct.lower() for ct in content_types} if content_types else None
+        )
 
         collections_to_fetch: Iterable[str | None]
         if self._collection_filter_keys:
@@ -69,7 +81,6 @@ class ZoteroClient(AbstractContextManager["ZoteroClient"]):
                 params: dict[str, object] = {
                     "itemType": "attachment",
                     "format": "json",
-                    "attachmentContentType": "application/pdf",
                     "limit": self.settings.chunk_size,
                     "start": start,
                     "sort": "dateModified",
@@ -81,7 +92,6 @@ class ZoteroClient(AbstractContextManager["ZoteroClient"]):
                         collection_key,
                         itemType=params["itemType"],
                         format=params["format"],
-                        attachmentContentType=params["attachmentContentType"],
                         limit=params["limit"],
                         start=params["start"],
                         sort=params["sort"],
@@ -101,6 +111,12 @@ class ZoteroClient(AbstractContextManager["ZoteroClient"]):
 
                     if not self._is_downloadable_attachment(data):
                         continue
+
+                    # Optional MIME-type filtering based on stored contentType
+                    if content_type_filter:
+                        content_type = (data.get("contentType") or "").lower()
+                        if content_type not in content_type_filter:
+                            continue
 
                     parent_key = data.get("parentItem")
                     parent = self._fetch_parent(parent_key) if parent_key else None
@@ -160,7 +176,16 @@ class ZoteroClient(AbstractContextManager["ZoteroClient"]):
                 start += len(batch)
 
         if yielded == 0:
-            logger.info("No PDF attachments matched the specified filters.")
+            logger.info("No attachments matched the specified filters.")
+
+    def iter_pdf_attachments(self) -> Iterator[AttachmentMetadata]:
+        """Yield PDF attachments that satisfy configured filters.
+
+        Deprecated: use :meth:`iter_attachments` instead. This remains for
+        backward compatibility and simply delegates to ``iter_attachments``
+        with a PDF-only MIME filter.
+        """
+        return self.iter_attachments(content_types={"application/pdf"})
 
     def download_attachment(self, attachment_key: str, destination: Path) -> Path:
         """Download an attachment's binary content to ``destination``."""

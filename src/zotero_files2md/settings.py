@@ -12,7 +12,7 @@ LibraryType = Literal["user", "group"]
 
 @dataclass(slots=True)
 class ExportSettings:
-    """Configuration for exporting Zotero PDFs to Markdown."""
+    """Configuration for exporting Zotero attachments to Markdown."""
 
     api_key: str
     library_id: str

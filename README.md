@@ -1,13 +1,13 @@
 # zotero-files2md
 
-Export PDF attachments stored in a Zotero library to Markdown using [Docling](https://github.com/docling-project/docling), driven entirely through the official Zotero Web API via [PyZotero](https://github.com/urschrei/pyzotero).
+Export file attachments (for example PDF, Word, HTML, CSV, images) stored in a Zotero library to Markdown using [Docling](https://github.com/docling-project/docling), driven entirely through the official Zotero Web API via [PyZotero](https://github.com/urschrei/pyzotero).
 
 ## Features
 
 - Uses Zotero Web API (no direct database access required)
 - Authenticates with a Zotero API key (user or group libraries supported)
-- Discovers PDF attachments with optional collection/tag filters (collection **keys**)
-- Downloads eligible PDFs (imported files only) and converts them to Markdown
+- Discovers imported file attachments with optional collection/tag filters (collection **keys**)
+- Downloads eligible attachments (imported files only) and converts them to Markdown via Docling
 - Organises exported Markdown by parent item and attachment titles
 - Supports dry-run mode, overwrite behaviour, chunk-size tuning
 - Provides both a CLI and a Python API for programmatic usage
@@ -93,8 +93,8 @@ zotero-files2md export \
 | `--limit N` | Stop after processing `N` attachments. |
 | `--chunk-size N` | Number of attachments to request per API call (default 100). |
 | `--overwrite` | Overwrite existing Markdown files instead of skipping. |
-| `--skip-existing` | Skip downloading PDFs if the target Markdown file already exists locally. |
-| `--dry-run` | List target files without downloading PDFs or writing Markdown. |
+| `--skip-existing` | Skip downloading attachments if the target Markdown file already exists locally. |
+| `--dry-run` | List target files without downloading attachments or writing Markdown. |
 | `--option/-o KEY=VALUE` | Forward options to the Docling converter (currently accepted for forward compatibility; most options are not yet mapped into Docling's configuration). |
 | `--log-level LEVEL` | Logging verbosity (`critical`, `error`, `warning`, `info`, `debug`). Default: `info`. |
 
@@ -131,7 +131,7 @@ settings = ExportSettings(
     collections={"ABCD1234"},
     markdown_options={"write_images": "true"},
     overwrite=True,
-    skip_existing=False,  # Set to True to skip downloading PDFs if output exists
+    skip_existing=False,  # Set to True to skip downloading attachments if output exists
     chunk_size=50,
 )
 
@@ -151,5 +151,5 @@ pytest
 - The Zotero Web API only provides access to attachments that are stored in Zotero (`imported_file` / `imported_url`). Linked file attachments (`linked_file`) are skipped automatically.
 - Ensure the API key has sufficient permissions for the target library (read at minimum).
 - API rate limits apply; adjust `--chunk-size` or insert breaks between runs if necessary.
-- When running in `--dry-run` mode, attachments are enumerated but PDFs are not downloaded and no Markdown is written.
+- When running in `--dry-run` mode, attachments are enumerated but files are not downloaded and no Markdown is written.
 - When one or more `--collection` keys are supplied, only those collections are queried (via the Zotero `collection_items` endpoint). Provide collection **keys** rather than names; you can copy the key from the Zotero web UI URL.
