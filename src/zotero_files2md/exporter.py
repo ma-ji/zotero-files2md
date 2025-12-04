@@ -145,7 +145,7 @@ def export_library(settings: ExportSettings) -> ExportSummary:
                 )
 
                 convert_future = conversion_executor.submit(
-                    convert_attachment_to_markdown, attachment, file_path, settings
+                    convert_attachment_to_markdown, attachment, pdf_path, settings
                 )
                 conversion_futures[convert_future] = attachment.attachment_key
 
