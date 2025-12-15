@@ -4,10 +4,50 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Literal, Mapping, Sequence
+from typing import Iterable, Literal, Sequence
 
 
 LibraryType = Literal["user", "group"]
+
+
+def parse_collection_output_pairs(values: Iterable[str] | None) -> dict[str, Path]:
+    """Parse CLI-style ``COLLECTION_KEY=OUTPUT_DIR`` pairs.
+
+    Args:
+        values: Iterable of strings formatted as ``COLLECTION_KEY=OUTPUT_DIR``.
+
+    Returns:
+        An ordered mapping of collection key to output directory path.
+    """
+    mapping: dict[str, Path] = {}
+    if not values:
+        return mapping
+
+    for item in values:
+        raw = str(item).strip()
+        if not raw:
+            continue
+        if "=" not in raw:
+            msg = "Collection outputs must be specified as COLLECTION_KEY=OUTPUT_DIR pairs."
+            raise ValueError(msg)
+
+        collection_key, output_dir = raw.split("=", 1)
+        collection_key = collection_key.strip()
+        output_dir = output_dir.strip()
+
+        if not collection_key:
+            msg = "Collection key cannot be empty in COLLECTION_KEY=OUTPUT_DIR."
+            raise ValueError(msg)
+        if not output_dir:
+            msg = f"Output directory cannot be empty for collection {collection_key!r}."
+            raise ValueError(msg)
+        if collection_key in mapping:
+            msg = f"Duplicate collection key in mapping: {collection_key!r}."
+            raise ValueError(msg)
+
+        mapping[collection_key] = Path(output_dir)
+
+    return mapping
 
 
 @dataclass(slots=True)
@@ -25,7 +65,6 @@ class ExportSettings:
 
     # Conversion options
     overwrite: bool = False
-    skip_existing: bool = False
     dry_run: bool = False
     limit: int | None = None
     chunk_size: int = 100
@@ -36,8 +75,6 @@ class ExportSettings:
     do_picture_description: bool = False
     image_resolution_scale: float = 4.0
     use_multi_gpu: bool = True
-
-    markdown_options: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.api_key = self.api_key.strip()
@@ -67,11 +104,9 @@ class ExportSettings:
             raise ValueError(msg)
 
         self.output_dir = self.output_dir.expanduser().resolve()
-        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.collections = {c.strip() for c in self.collections if c.strip()}
         self.tags = {t.strip() for t in self.tags if t.strip()}
-        self.markdown_options = dict(self.markdown_options)
 
     @classmethod
     def from_cli_args(
@@ -84,7 +119,6 @@ class ExportSettings:
         collections: Iterable[str] | None = None,
         tags: Iterable[str] | None = None,
         overwrite: bool = False,
-        skip_existing: bool = False,
         dry_run: bool = False,
         limit: int | None = None,
         chunk_size: int = 100,
@@ -93,7 +127,6 @@ class ExportSettings:
         do_picture_description: bool = False,
         image_resolution_scale: float = 4.0,
         use_multi_gpu: bool = True,
-        markdown_options: Mapping[str, Any] | None = None,
     ) -> "ExportSettings":
         """Instantiate settings from CLI-friendly arguments."""
         return cls(
@@ -104,7 +137,6 @@ class ExportSettings:
             collections=set(collections or ()),
             tags=set(tags or ()),
             overwrite=overwrite,
-            skip_existing=skip_existing,
             dry_run=dry_run,
             limit=limit,
             chunk_size=chunk_size,
@@ -113,7 +145,6 @@ class ExportSettings:
             do_picture_description=do_picture_description,
             image_resolution_scale=image_resolution_scale,
             use_multi_gpu=use_multi_gpu,
-            markdown_options=dict(markdown_options or {}),
         )
 
     def describe_filters(self) -> str:
@@ -138,9 +169,7 @@ class ExportSettings:
             f"Output directory: {self.output_dir}",
             f"Filters: {self.describe_filters()}",
             f"Overwrite existing files: {self.overwrite}",
-            f"Skip existing files: {self.skip_existing}",
             f"Dry run: {self.dry_run}",
             f"Chunk size: {self.chunk_size}",
             f"Max workers: {self.max_workers or 'auto'}",
-            f"Markdown options: {self.markdown_options or {}}",
         ]

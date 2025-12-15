@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from zotero_files2md.settings import ExportSettings
+from zotero_files2md.settings import parse_collection_output_pairs
 from zotero_files2md.utils import compute_output_path
 from zotero_files2md.models import AttachmentMetadata
 
@@ -23,7 +24,6 @@ def test_settings_initialisation(tmp_path: Path) -> None:
         limit=5,
         chunk_size=25,
         max_workers=4,
-        markdown_options={"write_images": "true"},
     )
 
     assert settings.api_key == "abc123"
@@ -37,13 +37,12 @@ def test_settings_initialisation(tmp_path: Path) -> None:
     assert settings.limit == 5
     assert settings.chunk_size == 25
     assert settings.max_workers == 4
-    assert settings.markdown_options == {"write_images": "true"}
 
     summary = settings.to_cli_summary()
     assert "Library type: user" in summary[0]
     assert "Library ID: 654321" in summary[1]
     assert "Filters: collections=['Collection'], tags=['Tag'], limit=5" in summary[4]
-    assert "Max workers: 4" in summary[9]
+    assert "Max workers: 4" in summary[8]
 
 
 @pytest.mark.parametrize(
@@ -90,34 +89,6 @@ def test_settings_validation_errors(
         ExportSettings(**base)
 
 
-def test_skip_existing_setting(tmp_path: Path) -> None:
-    """Test that skip_existing setting works correctly."""
-    output_dir = tmp_path / "output"
-
-    # Default should be False
-    settings_default = ExportSettings.from_cli_args(
-        api_key="test",
-        library_id="123",
-        library_type="user",
-        output_dir=output_dir,
-    )
-    assert settings_default.skip_existing is False
-
-    # When set to True
-    settings_enabled = ExportSettings.from_cli_args(
-        api_key="test",
-        library_id="123",
-        library_type="user",
-        output_dir=output_dir,
-        skip_existing=True,
-    )
-    assert settings_enabled.skip_existing is True
-
-    # Should appear in CLI summary
-    summary = settings_enabled.to_cli_summary()
-    assert any("Skip existing files: True" in line for line in summary)
-
-
 def test_compute_output_path(tmp_path: Path) -> None:
     """Test that compute_output_path returns the expected path."""
     attachment = AttachmentMetadata(
@@ -146,3 +117,29 @@ def test_compute_output_path_with_fallback(tmp_path: Path) -> None:
     result = compute_output_path(attachment, tmp_path)
     expected = tmp_path / "PARENT1" / "ABC123.md"
     assert result == expected
+
+
+def test_parse_collection_output_pairs() -> None:
+    mapping = parse_collection_output_pairs(
+        [
+            " ABCD1234 = ./out/a ",
+            "EFGH5678=./out/b",
+        ]
+    )
+    assert list(mapping.keys()) == ["ABCD1234", "EFGH5678"]
+    assert mapping["ABCD1234"] == Path("./out/a")
+    assert mapping["EFGH5678"] == Path("./out/b")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        ["missing-separator"],
+        ["=./out"],
+        ["KEY="],
+        ["KEY=./out", "KEY=./out2"],
+    ],
+)
+def test_parse_collection_output_pairs_validation(value: list[str]) -> None:
+    with pytest.raises(ValueError):
+        parse_collection_output_pairs(value)

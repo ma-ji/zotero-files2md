@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import logging
-from collections import defaultdict
 from contextlib import AbstractContextManager
 from datetime import datetime
-from pathlib import Path
 from typing import Iterable, Iterator
 
 from pyzotero import zotero as zotero_api
@@ -16,7 +13,6 @@ from .models import AttachmentMetadata
 from .settings import ExportSettings
 from .utils import get_logger
 
-# logging.basicConfig(level=logging.DEBUG)
 logger = get_logger()
 
 
@@ -30,10 +26,7 @@ class ZoteroClient(AbstractContextManager["ZoteroClient"]):
             library_type=settings.library_type,
             api_key=settings.api_key,
         )
-        self._collection_name_by_key = self._load_collection_mappings()
-        self._collection_filter_keys = self._resolve_collection_filters(
-            settings.collections
-        )
+        self._collection_filter_keys = set(settings.collections)
         self._tag_filters = {tag.lower() for tag in settings.tags}
         self._parent_cache: dict[str, dict] = {}
 
@@ -121,18 +114,17 @@ class ZoteroClient(AbstractContextManager["ZoteroClient"]):
                     parent_key = data.get("parentItem")
                     parent = self._fetch_parent(parent_key) if parent_key else None
 
-                    attachment_collections = self._resolve_collection_names(
-                        data.get("collections") or []
-                    )
-                    parent_collections = (
-                        self._resolve_collection_names(
-                            parent.get("data", {}).get("collections") or []
-                        )
+                    attachment_collection_keys = tuple(data.get("collections") or ())
+                    parent_collection_keys = (
+                        tuple(parent.get("data", {}).get("collections") or ())
                         if parent
                         else ()
                     )
                     all_collections = tuple(
-                        sorted(set(attachment_collections + parent_collections))
+                        sorted(
+                            set(attachment_collection_keys)
+                            | set(parent_collection_keys)
+                        )
                     )
 
                     attachment_tags = self._extract_tags(data.get("tags", ()))
@@ -177,94 +169,7 @@ class ZoteroClient(AbstractContextManager["ZoteroClient"]):
 
         if yielded == 0:
             logger.info("No attachments matched the specified filters.")
-
-    def iter_pdf_attachments(self) -> Iterator[AttachmentMetadata]:
-        """Yield PDF attachments that satisfy configured filters.
-
-        Deprecated: use :meth:`iter_attachments` instead. This remains for
-        backward compatibility and simply delegates to ``iter_attachments``
-        with a PDF-only MIME filter.
-        """
-        return self.iter_attachments(content_types={"application/pdf"})
-
-    def download_attachment(self, attachment_key: str, destination: Path) -> Path:
-        """Download an attachment's binary content to ``destination``."""
-        logger.debug("Downloading attachment %s to %s", attachment_key, destination)
-        binary = self._client.file(attachment_key)
-        destination.write_bytes(binary)
-        return destination
-
     # --- internal helpers ---------------------------------------------------------
-    def _load_collection_mappings(self) -> dict[str, str]:
-        """Return mapping of collection key -> human-friendly name."""
-        mappings: dict[str, str] = {}
-        start = 0
-
-        while True:
-            logger.debug(
-                "Fetching collections: limit=%d, start=%d",
-                self.settings.chunk_size,
-                start,
-            )
-            batch = self._client.collections(
-                format="json",
-                limit=self.settings.chunk_size,
-                start=start,
-            )
-            if not batch:
-                logger.debug("Received empty batch. Ending collection fetch.")
-                break
-
-            logger.debug("Received batch of %d collections.", len(batch))
-            for collection in batch:
-                data = collection.get("data", {})
-                key = data.get("key")
-                name = data.get("name")
-                if key and name:
-                    mappings[key] = name
-            start += len(batch)
-
-        logger.debug("Loaded %d collections", len(mappings))
-        if logger.isEnabledFor(logging.DEBUG):
-            import json
-
-            logger.debug(
-                "Loaded collection mappings: %s",
-                json.dumps(mappings, indent=2, sort_keys=True),
-            )
-        return mappings
-
-    def _resolve_collection_names(self, keys: Iterable[str]) -> tuple[str, ...]:
-        return tuple(
-            self._collection_name_by_key[key]
-            for key in keys
-            if key in self._collection_name_by_key
-        )
-
-    def _resolve_collection_filters(self, names: Iterable[str]) -> set[str]:
-        if not names:
-            return set()
-        provided = {key.strip() for key in names if key and key.strip()}
-        if not provided:
-            return set()
-
-        valid = {key for key in provided if key in self._collection_name_by_key}
-        missing = provided - valid
-
-        if valid:
-            logger.info(
-                "Filtering by %d collection keys: %s",
-                len(valid),
-                sorted(valid),
-            )
-        if missing:
-            logger.warning(
-                "Collection keys %s were not found in library metadata. "
-                "Ensure these are collection keys, not names. "
-                "For further diagnostics, run with --log-level debug to see all loaded collections.",
-                sorted(missing),
-            )
-        return valid
 
     def _match_collections(
         self,

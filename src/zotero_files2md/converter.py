@@ -4,23 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Optional
-
-from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import (
-    AcceleratorDevice,
-    AcceleratorOptions,
-    PdfPipelineOptions,
-    TableFormerMode,
-)
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling_core.types.doc.base import ImageRefMode
+from threading import local
+from typing import Literal
 
 from .models import AttachmentMetadata
 from .settings import ExportSettings
-from .utils import ensure_directory, get_logger, slugify
+from .utils import compute_output_path, ensure_directory, get_logger
 
 logger = get_logger()
+_converter_local = local()
 
 
 def convert_attachment_to_markdown(
@@ -42,13 +34,7 @@ def convert_attachment_to_markdown(
         "Converting attachment %s using file %s", attachment.attachment_key, file_path
     )
 
-    output_dir = ensure_directory(
-        settings.output_dir
-        / slugify(attachment.parent_title, attachment.parent_item_key or "item")
-    )
-
-    filename_base = slugify(attachment.title, attachment.attachment_key)
-    output_path = output_dir / f"{filename_base}.md"
+    output_path = compute_output_path(attachment, settings.output_dir)
 
     if output_path.exists() and not settings.overwrite:
         logger.info("Skipping existing file: %s", output_path)
@@ -65,6 +51,8 @@ def convert_attachment_to_markdown(
             output=output_path,
             status="dry-run",
         )
+
+    ensure_directory(output_path.parent)
 
     if not file_path.exists():
         msg = f"File not found for conversion: {file_path}"
@@ -101,9 +89,19 @@ def get_pipeline_options(
     force_full_page_ocr: bool,
     do_picture_description: bool,
     image_resolution_scale: float,
-    device: AcceleratorDevice = AcceleratorDevice.AUTO,
+    device: AcceleratorDevice | None = None,
     num_threads: int = 4,
 ) -> PdfPipelineOptions:
+    from docling.datamodel.pipeline_options import (
+        AcceleratorDevice,
+        AcceleratorOptions,
+        PdfPipelineOptions,
+        TableFormerMode,
+    )
+
+    if device is None:
+        device = AcceleratorDevice.AUTO
+
     pipeline_options = PdfPipelineOptions()
     pipeline_options.generate_picture_images = True
     pipeline_options.do_picture_description = do_picture_description
@@ -123,21 +121,41 @@ def get_pipeline_options(
 def _render_markdown(
     file_path: Path,
     settings: ExportSettings,
-    device: AcceleratorDevice = AcceleratorDevice.AUTO,
+    device: AcceleratorDevice | None = None,
 ) -> str:
     """Render a local document to Markdown using Docling."""
-    pipeline_options = get_pipeline_options(
-        force_full_page_ocr=settings.force_full_page_ocr,
-        do_picture_description=settings.do_picture_description,
-        image_resolution_scale=settings.image_resolution_scale,
-        device=device,
-    )
+    from docling.datamodel.base_models import InputFormat
+    from docling.datamodel.pipeline_options import AcceleratorDevice
+    from docling.document_converter import DocumentConverter, PdfFormatOption
+    from docling_core.types.doc.base import ImageRefMode
 
-    converter = DocumentConverter(
-        format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
-        }
+    if device is None:
+        device = AcceleratorDevice.AUTO
+
+    cache_key = (
+        settings.force_full_page_ocr,
+        settings.do_picture_description,
+        settings.image_resolution_scale,
+        device,
     )
+    cached_key = getattr(_converter_local, "key", None)
+    converter = getattr(_converter_local, "converter", None)
+
+    if converter is None or cached_key != cache_key:
+        pipeline_options = get_pipeline_options(
+            force_full_page_ocr=settings.force_full_page_ocr,
+            do_picture_description=settings.do_picture_description,
+            image_resolution_scale=settings.image_resolution_scale,
+            device=device,
+        )
+        converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+            }
+        )
+        _converter_local.key = cache_key
+        _converter_local.converter = converter
+
     result = converter.convert(str(file_path))
 
     if result.document is None:

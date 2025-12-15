@@ -6,7 +6,7 @@ import logging
 import re
 import unicodedata
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .models import AttachmentMetadata
@@ -55,19 +55,11 @@ def ensure_directory(path: Path) -> Path:
     return path
 
 
-def flatten(iterables: Iterable[Iterable[str]]) -> set[str]:
-    """Flatten an iterable of iterables into a set of unique values."""
-    result: set[str] = set()
-    for iterable in iterables:
-        result.update(iterable)
-    return result
-
-
 def compute_output_path(attachment: "AttachmentMetadata", output_dir: Path) -> Path:
     """Compute the expected output path for an attachment.
 
     Args:
-        attachment: Attachment metadata describing the PDF.
+        attachment: Attachment metadata describing the source file.
         output_dir: Base output directory for markdown files.
 
     Returns:

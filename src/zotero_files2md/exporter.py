@@ -4,23 +4,17 @@ from __future__ import annotations
 
 import gc
 import os
-from dataclasses import dataclass
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from contextlib import ExitStack
+from dataclasses import dataclass, replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Sequence
-import warnings
-
-import torch
-from joblib import Parallel, delayed
-
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import AcceleratorDevice
+from threading import local
+from typing import Mapping, Sequence
 
 from .converter import (
     ConversionResult,
     convert_attachment_to_markdown,
-    get_pipeline_options,
 )
 from .models import AttachmentMetadata
 from .settings import ExportSettings
@@ -41,16 +35,87 @@ class ExportSummary:
     output_paths: tuple[Path, ...]
 
 
+@dataclass(slots=True, frozen=True)
+class BatchExportRun:
+    """Summary of a single batch entry."""
+
+    collection_key: str
+    output_dir: Path
+    summary: ExportSummary
+
+
+@dataclass(slots=True, frozen=True)
+class BatchExportSummary:
+    """Summary of a batch export run."""
+
+    processed: int
+    converted: int
+    skipped: int
+    dry_run: int
+    output_paths: tuple[Path, ...]
+    runs: tuple[BatchExportRun, ...]
+
+
+def export_collections(
+    base_settings: ExportSettings,
+    collection_output_dirs: Mapping[str, Path],
+) -> BatchExportSummary:
+    """Export multiple collections, each to its own output directory.
+
+    Args:
+        base_settings: Shared settings used for each export run. The output
+            directory and collection filter are overridden per collection.
+        collection_output_dirs: Mapping of collection key -> output directory.
+
+    Returns:
+        BatchExportSummary with totals and per-collection results.
+    """
+    if not collection_output_dirs:
+        msg = "At least one collection output mapping must be provided."
+        raise ValueError(msg)
+
+    runs: list[BatchExportRun] = []
+    output_paths: list[Path] = []
+
+    processed = converted = skipped = dry_run = 0
+
+    for collection_key, output_dir in collection_output_dirs.items():
+        run_settings = replace(
+            base_settings,
+            output_dir=Path(output_dir),
+            collections={collection_key},
+        )
+        run_summary = export_library(run_settings)
+        runs.append(
+            BatchExportRun(
+                collection_key=collection_key,
+                output_dir=run_settings.output_dir,
+                summary=run_summary,
+            )
+        )
+
+        processed += run_summary.processed
+        converted += run_summary.converted
+        skipped += run_summary.skipped
+        dry_run += run_summary.dry_run
+        output_paths.extend(run_summary.output_paths)
+
+    return BatchExportSummary(
+        processed=processed,
+        converted=converted,
+        skipped=skipped,
+        dry_run=dry_run,
+        output_paths=tuple(output_paths),
+        runs=tuple(runs),
+    )
+
+
 def export_library(settings: ExportSettings) -> ExportSummary:
     """Export all matching Zotero attachments to Markdown via the Web API.
 
     All imported file attachments are considered; conversion is delegated to
     Docling, which may skip unsupported formats.
     """
-    # Suppress warnings
-    warnings.filterwarnings("ignore")
-    warnings.simplefilter(action="ignore", category=FutureWarning)
-
     logger.info("Starting export via Docling and Zotero Web API")
     for line in settings.to_cli_summary():
         logger.info(line)
@@ -73,13 +138,16 @@ def export_library(settings: ExportSettings) -> ExportSummary:
 
         if settings.dry_run:
             for attachment in attachments:
-                file_path = _temp_path_for_attachment(temp_dir, attachment)
+                output_path = compute_output_path(attachment, settings.output_dir)
                 results.append(
-                    convert_attachment_to_markdown(attachment, file_path, settings)
+                    ConversionResult(
+                        source=Path(attachment.filename or attachment.attachment_key),
+                        output=output_path,
+                        status="dry-run",
+                    )
                 )
             return summarize_results(results)
 
-        # Pre-filter attachments when skip_existing is enabled
         attachments_to_process: list[AttachmentMetadata] = []
         seen_output_paths: set[Path] = set()
 
@@ -101,21 +169,16 @@ def export_library(settings: ExportSettings) -> ExportSummary:
                 )
                 continue
 
-            if settings.skip_existing:
-                if output_path.exists():
-                    logger.info(
-                        "Skipping existing file (skip_existing): %s", output_path
+            if output_path.exists() and not settings.overwrite:
+                logger.info("Skipping existing file: %s", output_path)
+                results.append(
+                    ConversionResult(
+                        source=Path(attachment.filename or attachment.attachment_key),
+                        output=output_path,
+                        status="skipped",
                     )
-                    results.append(
-                        ConversionResult(
-                            source=Path(
-                                attachment.filename or attachment.attachment_key
-                            ),
-                            output=output_path,
-                            status="skipped",
-                        )
-                    )
-                    continue
+                )
+                continue
 
             seen_output_paths.add(output_path)
             attachments_to_process.append(attachment)
@@ -124,77 +187,151 @@ def export_library(settings: ExportSettings) -> ExportSummary:
             logger.info("All attachments already have existing output files.")
             return summarize_results(results)
 
-        # Warmup
-        logger.info("Performing model warmup (CPU)...")
-        try:
-            warmup_pipeline_options = get_pipeline_options(
-                force_full_page_ocr=settings.force_full_page_ocr,
-                do_picture_description=settings.do_picture_description,
-                image_resolution_scale=settings.image_resolution_scale,
-                device=AcceleratorDevice.CPU,
-                num_threads=1,
+        if settings.use_multi_gpu:
+            gpu_count = _detect_gpu_count()
+        else:
+            gpu_count = 0
+
+        if settings.use_multi_gpu and gpu_count > 0:
+            max_workers = settings.max_workers or gpu_count
+            max_workers = max(1, min(max_workers, gpu_count, len(attachments_to_process)))
+            gpu_ids = list(range(gpu_count))[:max_workers]
+            logger.info(
+                "Processing %d attachment(s) with %d GPU worker process(es).",
+                len(attachments_to_process),
+                max_workers,
             )
-            DocumentConverter(
-                format_options={
-                    InputFormat.PDF: PdfFormatOption(
-                        pipeline_options=warmup_pipeline_options
+
+            processed: list[ConversionResult | None] = [None] * len(
+                attachments_to_process
+            )
+            with ExitStack() as stack:
+                executors = [
+                    stack.enter_context(
+                        ProcessPoolExecutor(
+                            max_workers=1,
+                            initializer=_init_worker,
+                            initargs=(gpu_id,),
+                        )
                     )
+                    for gpu_id in gpu_ids
+                ]
+                future_to_index = {}
+                for idx, attachment in enumerate(attachments_to_process):
+                    executor = executors[idx % max_workers]
+                    future = executor.submit(
+                        _process_attachment, attachment, settings, temp_dir
+                    )
+                    future_to_index[future] = idx
+
+                for future in as_completed(future_to_index):
+                    processed[future_to_index[future]] = future.result()
+
+            results.extend([result for result in processed if result is not None])
+        else:
+            max_workers = settings.max_workers or min(12, os.cpu_count() or 4)
+            max_workers = max(1, min(max_workers, len(attachments_to_process)))
+            logger.info(
+                "Processing %d attachment(s) with %d worker thread(s).",
+                len(attachments_to_process),
+                max_workers,
+            )
+
+            processed: list[ConversionResult | None] = [None] * len(
+                attachments_to_process
+            )
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_index = {
+                    executor.submit(_process_attachment, attachment, settings, temp_dir): idx
+                    for idx, attachment in enumerate(attachments_to_process)
                 }
-            )
-            logger.info("Model warmup complete.")
-        except Exception as e:
-            logger.warning(f"Model warmup warning: {e}")
 
-        # GPU Detection
-        num_gpus = 0
-        try:
-            if torch.cuda.is_available():
-                num_gpus = torch.cuda.device_count()
-            logger.info(f"Detected {num_gpus} GPUs available.")
-        except Exception as e:
-            logger.warning(f"Could not detect GPUs: {e}")
+                for future in as_completed(future_to_index):
+                    processed[future_to_index[future]] = future.result()
 
-        # Parallel Execution
-        n_jobs = settings.max_workers or 4
-        # If user set max_workers, use it. If not, default to something reasonable.
-        # Reference used NJOBS=12. 
-        if settings.max_workers is None:
-             n_jobs = 12 # Default from reference
-        
-        logger.info(f"Starting parallel processing with {n_jobs} jobs...")
-        
-        # We need to make sure process_attachment_task can be pickled
-        # It is defined below
-        
-        parallel_results = Parallel(n_jobs=n_jobs, backend="loky")(
-            delayed(_process_attachment_task)(
-                attachment, settings, temp_dir, i, num_gpus
-            )
-            for i, attachment in enumerate(attachments_to_process)
-        )
-        
-        results.extend(parallel_results)
+            results.extend([result for result in processed if result is not None])
 
     return summarize_results(results)
 
 
-def _process_attachment_task(
+_worker_local = local()
+
+
+def _detect_gpu_count() -> int:
+    try:
+        import torch
+    except Exception:
+        return 0
+    try:
+        return torch.cuda.device_count() if torch.cuda.is_available() else 0
+    except Exception:
+        return 0
+
+
+def _init_worker(gpu_id: int | None = None) -> None:
+    if gpu_id is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+
+
+def _get_download_client(settings: ExportSettings):
+    key = (settings.library_id, settings.library_type, settings.api_key)
+    cached_key = getattr(_worker_local, "zotero_key", None)
+    cached_client = getattr(_worker_local, "zotero_client", None)
+
+    if cached_client is None or cached_key != key:
+        from pyzotero.zotero import Zotero as ZoteroAPI
+
+        cached_client = ZoteroAPI(
+            library_id=settings.library_id,
+            library_type=settings.library_type,
+            api_key=settings.api_key,
+        )
+        _worker_local.zotero_key = key
+        _worker_local.zotero_client = cached_client
+
+    return cached_client
+
+
+def _download_attachment(settings: ExportSettings, attachment_key: str, destination: Path) -> None:
+    client = _get_download_client(settings)
+    binary = client.file(attachment_key)
+    destination.write_bytes(binary)
+
+
+def _maybe_free_worker_memory() -> None:
+    try:
+        import torch
+    except Exception:
+        return
+    if not torch.cuda.is_available():
+        return
+
+    count = getattr(_worker_local, "cuda_cleanup_count", 0) + 1
+    _worker_local.cuda_cleanup_count = count
+    if count % 5 != 0:
+        return
+
+    torch.cuda.empty_cache()
+    gc.collect()
+
+
+def _process_attachment(
     attachment: AttachmentMetadata,
     settings: ExportSettings,
     temp_dir: Path,
-    job_index: int,
-    num_gpus_available: int,
 ) -> ConversionResult:
-    """Worker function for processing a single attachment."""
-    # Handle GPU assignment
-    if settings.use_multi_gpu and num_gpus_available > 0:
-        gpu_idx = job_index % num_gpus_available
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_idx)
-    
+    output_path = compute_output_path(attachment, settings.output_dir)
+    if output_path.exists() and not settings.overwrite:
+        return ConversionResult(
+            source=Path(attachment.filename or attachment.attachment_key),
+            output=output_path,
+            status="skipped",
+        )
+
     file_path = _temp_path_for_attachment(temp_dir, attachment)
-    
+
     try:
-        download_and_save(settings, attachment.attachment_key, file_path)
+        _download_attachment(settings, attachment.attachment_key, file_path)
     except Exception as exc:
         logger.error(
             "Failed to download attachment %s: %s",
@@ -202,32 +339,25 @@ def _process_attachment_task(
             exc,
             exc_info=True
         )
-        # Return a failed result
-        output_path = compute_output_path(attachment, settings.output_dir)
         return ConversionResult(
             source=file_path,
             output=output_path,
             status="skipped"
         )
     
-    # Convert
     try:
         result = convert_attachment_to_markdown(attachment, file_path, settings)
     except Exception as exc:
         logger.error(
             "Error converting %s: %s", file_path, exc, exc_info=True
         )
-        output_path = compute_output_path(attachment, settings.output_dir)
         result = ConversionResult(
              source=file_path,
              output=output_path,
              status="skipped"
         )
-        
-    # Cleanup memory
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    gc.collect()
+
+    _maybe_free_worker_memory()
     
     return result
 
@@ -242,16 +372,6 @@ def _temp_path_for_attachment(base_dir: Path, attachment: AttachmentMetadata) ->
     suffix = Path(filename).suffix
     name = f"{attachment.attachment_key}{suffix}"
     return base_dir / name
-
-
-def download_and_save(
-    settings: ExportSettings, attachment_key: str, file_path: Path
-) -> None:
-    """Download a single attachment; designed to be run in a worker thread."""
-    if settings.dry_run:
-        return
-    with ZoteroClient(settings) as client:
-        client.download_attachment(attachment_key, file_path)
 
 
 def summarize_results(results: Sequence[ConversionResult]) -> ExportSummary:

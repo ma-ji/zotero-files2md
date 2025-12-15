@@ -62,6 +62,8 @@ pip install "git+https://github.com/ma-ji/zotero-files2md.git#egg=zotero-files2m
 
 ## CLI Usage
 
+### Single output directory
+
 ```bash
 zotero-files2md export \
     ./markdown-output \
@@ -81,6 +83,24 @@ zotero-files2md export \
     --log-level debug
 ```
 
+### Batch: multiple collections to multiple output directories
+
+Provide one or more `--collection-output COLLECTION_KEY=OUTPUT_DIR` entries:
+
+```bash
+zotero-files2md export-batch \
+    --collection-output ABCD1234=./markdown-output/collection-a \
+    --collection-output EFGH5678=./markdown-output/collection-b \
+    --api-key "$ZOTERO_API_KEY" \
+    --library-id 123456 \
+    --library-type user \
+    --tag "LLM" \
+    --chunk-size 50 \
+    --max-workers 8 \
+    --overwrite \
+    --log-level info
+```
+
 ### Arguments
 
 | Argument | Description |
@@ -95,18 +115,17 @@ zotero-files2md export \
 | `--library-id` | Target Zotero library ID (numeric; honours `ZOTERO_LIBRARY_ID`). | - |
 | `--library-type` | Library type (`user` or `group`). | `user` |
 | `--collection/-c KEY` | Filter attachments by collection key (repeatable; obtain keys via the Zotero web UI or API). | - |
+| `--collection-output/-C KEY=DIR` | Batch mode: export one collection key to a specific output directory (repeatable; use with `export-batch`). | - |
 | `--tag/-t NAME` | Filter attachments by tag name (repeatable). | - |
 | `--limit N` | Stop after processing `N` attachments. | None |
 | `--chunk-size N` | Number of attachments to request per API call. | 100 |
-| `--max-workers N` | Upper bound on parallel download/conversion workers (auto-detected if unset). | None (Auto/12) |
+| `--max-workers N` | Upper bound on parallel download/conversion workers (auto-detected if unset). | Auto (up to 12) |
 | `--overwrite` | Overwrite existing Markdown files instead of skipping. | False |
-| `--skip-existing` | Skip downloading attachments if the target Markdown file already exists locally. | False |
 | `--dry-run` | List target files without downloading attachments or writing Markdown. | False |
 | `--force-full-page-ocr` | Force full-page OCR for better quality (slower). | False |
 | `--do-picture-description` | Enable GenAI picture description (slower). | False |
 | `--image-resolution-scale N` | Image resolution scale for Docling. | 4.0 |
 | `--use-multi-gpu` / `--no-use-multi-gpu` | Distribute processing across available GPUs. | True |
-| `--option/-o KEY=VALUE` | Forward options to the Docling converter (currently accepted for forward compatibility). | - |
 | `--log-level LEVEL` | Logging verbosity (`critical`, `error`, `warning`, `info`, `debug`). | `info` |
 
 ### Markdown Output Layout
@@ -131,7 +150,7 @@ For example:
 
 ```python
 from pathlib import Path
-from zotero_files2md import export_library
+from zotero_files2md import export_collections, export_library
 from zotero_files2md.settings import ExportSettings
 
 settings = ExportSettings(
@@ -140,9 +159,7 @@ settings = ExportSettings(
     library_type="user",
     output_dir=Path("./markdown-output"),
     collections={"ABCD1234"},
-    markdown_options={"write_images": "true"},
     overwrite=True,
-    skip_existing=False,  # Set to True to skip downloading attachments if output exists
     chunk_size=50,
     max_workers=8,
     use_multi_gpu=True,
@@ -152,6 +169,18 @@ settings = ExportSettings(
 
 summary = export_library(settings)
 print(summary)
+
+# Batch export: multiple collections -> multiple output directories
+# Note: ``export_collections`` overrides ``settings.output_dir`` and
+# ``settings.collections`` per mapping entry.
+batch = export_collections(
+    settings,
+    {
+        "ABCD1234": Path("./markdown-output/collection-a"),
+        "EFGH5678": Path("./markdown-output/collection-b"),
+    },
+)
+print(batch)
 ```
 
 ## Development
