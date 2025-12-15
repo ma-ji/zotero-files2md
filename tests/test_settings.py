@@ -24,6 +24,7 @@ def test_settings_initialisation(tmp_path: Path) -> None:
         limit=5,
         chunk_size=25,
         max_workers=4,
+        image_processing="PLACEHOLDER",
     )
 
     assert settings.api_key == "abc123"
@@ -37,12 +38,14 @@ def test_settings_initialisation(tmp_path: Path) -> None:
     assert settings.limit == 5
     assert settings.chunk_size == 25
     assert settings.max_workers == 4
+    assert settings.image_processing == "placeholder"
 
     summary = settings.to_cli_summary()
     assert "Library type: user" in summary[0]
     assert "Library ID: 654321" in summary[1]
     assert "Filters: collections=['Collection'], tags=['Tag'], limit=5" in summary[4]
     assert "Max workers: 4" in summary[8]
+    assert "Image processing: placeholder" in summary
 
 
 @pytest.mark.parametrize(
@@ -70,6 +73,15 @@ def test_settings_initialisation(tmp_path: Path) -> None:
                 "library_id": "1",
                 "library_type": "user",
                 "max_workers": 0,
+            },
+            ValueError,
+        ),
+        (
+            {
+                "api_key": "abc",
+                "library_id": "1",
+                "library_type": "user",
+                "image_processing": "unknown",
             },
             ValueError,
         ),

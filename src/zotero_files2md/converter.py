@@ -162,8 +162,22 @@ def _render_markdown(
         msg = f"Docling conversion failed for {file_path}: {result.status}"
         raise RuntimeError(msg)
 
-    # Use ImageRefMode.EMBEDDED as per reference
+    image_processing = settings.image_processing
+    if image_processing == "embed":
+        image_mode = ImageRefMode.EMBEDDED
+        image_placeholder = "<!-- image -->"
+    elif image_processing == "placeholder":
+        image_mode = ImageRefMode.PLACEHOLDER
+        image_placeholder = "<!-- image -->"
+    elif image_processing == "drop":
+        image_mode = ImageRefMode.PLACEHOLDER
+        image_placeholder = ""
+    else:  # pragma: no cover - validated by ExportSettings
+        image_mode = ImageRefMode.EMBEDDED
+        image_placeholder = "<!-- image -->"
+
     return result.document.export_to_markdown(
-        image_mode=ImageRefMode.EMBEDDED,
+        image_placeholder=image_placeholder,
+        image_mode=image_mode,
         page_break_placeholder="\n\n--- Page Break ---\n\n",
     )

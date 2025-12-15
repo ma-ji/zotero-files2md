@@ -194,33 +194,47 @@ def export_library(settings: ExportSettings) -> ExportSummary:
             gpu_count = 0
 
         if settings.use_multi_gpu and gpu_count > 0:
-            max_workers = settings.max_workers or gpu_count
-            max_workers = max(1, min(max_workers, gpu_count, len(attachments_to_process)))
-            gpu_ids = list(range(gpu_count))[:max_workers]
+            requested_workers = settings.max_workers or gpu_count
+            total_workers = max(1, min(requested_workers, len(attachments_to_process)))
+            gpus_used = min(gpu_count, total_workers)
+            gpu_ids = list(range(gpu_count))[:gpus_used]
+
+            base_workers = total_workers // gpus_used
+            remainder = total_workers % gpus_used
+            workers_per_gpu = {
+                gpu_id: base_workers + (1 if idx < remainder else 0)
+                for idx, gpu_id in enumerate(gpu_ids)
+            }
             logger.info(
-                "Processing %d attachment(s) with %d GPU worker process(es).",
+                "Processing %d attachment(s) with %d GPU worker process(es) across %d GPU(s).",
                 len(attachments_to_process),
-                max_workers,
+                total_workers,
+                gpus_used,
             )
 
             processed: list[ConversionResult | None] = [None] * len(
                 attachments_to_process
             )
             with ExitStack() as stack:
-                executors = [
-                    stack.enter_context(
+                executors_by_gpu = {
+                    gpu_id: stack.enter_context(
                         ProcessPoolExecutor(
-                            max_workers=1,
+                            max_workers=workers_per_gpu[gpu_id],
                             initializer=_init_worker,
                             initargs=(gpu_id,),
                             mp_context=get_context("spawn"),
                         )
                     )
                     for gpu_id in gpu_ids
+                }
+                executor_slots = [
+                    executors_by_gpu[gpu_id]
+                    for gpu_id in gpu_ids
+                    for _ in range(workers_per_gpu[gpu_id])
                 ]
                 future_to_index = {}
                 for idx, attachment in enumerate(attachments_to_process):
-                    executor = executors[idx % max_workers]
+                    executor = executor_slots[idx % total_workers]
                     future = executor.submit(
                         _process_attachment, attachment, settings, temp_dir
                     )

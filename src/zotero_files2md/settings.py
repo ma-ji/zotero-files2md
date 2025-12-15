@@ -8,6 +8,7 @@ from typing import Iterable, Literal, Sequence
 
 
 LibraryType = Literal["user", "group"]
+ImageProcessing = Literal["embed", "placeholder", "drop"]
 
 
 def parse_collection_output_pairs(values: Iterable[str] | None) -> dict[str, Path]:
@@ -74,6 +75,7 @@ class ExportSettings:
     force_full_page_ocr: bool = False
     do_picture_description: bool = False
     image_resolution_scale: float = 4.0
+    image_processing: ImageProcessing = "embed"
     use_multi_gpu: bool = True
 
     def __post_init__(self) -> None:
@@ -103,6 +105,14 @@ class ExportSettings:
             msg = "max_workers must be positive when provided."
             raise ValueError(msg)
 
+        self.image_processing = self.image_processing.strip().lower()  # type: ignore[assignment]
+        if self.image_processing not in {"embed", "placeholder", "drop"}:
+            msg = (
+                "image_processing must be one of: 'embed', 'placeholder', 'drop'. "
+                f"Got {self.image_processing!r}."
+            )
+            raise ValueError(msg)
+
         self.output_dir = self.output_dir.expanduser().resolve()
 
         self.collections = {c.strip() for c in self.collections if c.strip()}
@@ -126,6 +136,7 @@ class ExportSettings:
         force_full_page_ocr: bool = False,
         do_picture_description: bool = False,
         image_resolution_scale: float = 4.0,
+        image_processing: ImageProcessing = "embed",
         use_multi_gpu: bool = True,
     ) -> "ExportSettings":
         """Instantiate settings from CLI-friendly arguments."""
@@ -144,6 +155,7 @@ class ExportSettings:
             force_full_page_ocr=force_full_page_ocr,
             do_picture_description=do_picture_description,
             image_resolution_scale=image_resolution_scale,
+            image_processing=image_processing,
             use_multi_gpu=use_multi_gpu,
         )
 
@@ -172,4 +184,9 @@ class ExportSettings:
             f"Dry run: {self.dry_run}",
             f"Chunk size: {self.chunk_size}",
             f"Max workers: {self.max_workers or 'auto'}",
+            f"Force full page OCR: {self.force_full_page_ocr}",
+            f"Picture description: {self.do_picture_description}",
+            f"Image resolution scale: {self.image_resolution_scale}",
+            f"Image processing: {self.image_processing}",
+            f"Use multi GPU: {self.use_multi_gpu}",
         ]

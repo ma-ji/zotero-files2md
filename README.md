@@ -79,6 +79,7 @@ zotero-files2md export \
     --force-full-page-ocr \
     --do-picture-description \
     --image-resolution-scale 4.0 \
+    --image-processing embed \
     --use-multi-gpu \
     --log-level debug
 ```
@@ -119,12 +120,13 @@ zotero-files2md export-batch \
 | `--tag/-t NAME` | Filter attachments by tag name (repeatable). | - |
 | `--limit N` | Stop after processing `N` attachments. | None |
 | `--chunk-size N` | Number of attachments to request per API call. | 100 |
-| `--max-workers N` | Upper bound on parallel download/conversion workers (auto-detected if unset). | Auto (up to 12) |
+| `--max-workers N` | Upper bound on parallel download/conversion workers (auto-detected if unset; in multi-GPU mode, values above GPU count run multiple workers per GPU). | Auto (up to 12) |
 | `--overwrite` | Overwrite existing Markdown files instead of skipping. | False |
 | `--dry-run` | List target files without downloading attachments or writing Markdown. | False |
 | `--force-full-page-ocr` | Force full-page OCR for better quality (slower). | False |
 | `--do-picture-description` | Enable GenAI picture description (slower). | False |
 | `--image-resolution-scale N` | Image resolution scale for Docling. | 4.0 |
+| `--image-processing MODE` | How to handle images in Markdown output (`embed`, `placeholder`, `drop`). | `embed` |
 | `--use-multi-gpu` / `--no-use-multi-gpu` | Distribute processing across available GPUs. | True |
 | `--log-level LEVEL` | Logging verbosity (`critical`, `error`, `warning`, `info`, `debug`). | `info` |
 
@@ -165,6 +167,7 @@ settings = ExportSettings(
     use_multi_gpu=True,
     force_full_page_ocr=False,
     do_picture_description=False,
+    image_processing="embed",
 )
 
 summary = export_library(settings)

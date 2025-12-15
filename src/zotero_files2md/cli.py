@@ -83,7 +83,10 @@ def export_command(
     max_workers: Optional[int] = typer.Option(
         None,
         "--max-workers",
-        help="Upper bound on parallel download/conversion workers (default auto).",
+        help=(
+            "Upper bound on parallel download/conversion workers (default auto). "
+            "In multi-GPU mode, values above the GPU count will run multiple workers per GPU."
+        ),
     ),
     overwrite: bool = typer.Option(
         False,
@@ -112,6 +115,12 @@ def export_command(
         4.0,
         "--image-resolution-scale",
         help="Image resolution scale for Docling.",
+    ),
+    image_processing: str = typer.Option(
+        "embed",
+        "--image-processing",
+        case_sensitive=False,
+        help="How to handle images in Markdown output (embed, placeholder, drop).",
     ),
     use_multi_gpu: bool = typer.Option(
         True,
@@ -147,6 +156,7 @@ def export_command(
             force_full_page_ocr=force_full_page_ocr,
             do_picture_description=do_picture_description,
             image_resolution_scale=image_resolution_scale,
+            image_processing=image_processing,
             use_multi_gpu=use_multi_gpu,
         )
     except (FileNotFoundError, ValueError) as exc:
@@ -216,7 +226,10 @@ def export_batch_command(
     max_workers: Optional[int] = typer.Option(
         None,
         "--max-workers",
-        help="Upper bound on parallel download/conversion workers (default auto).",
+        help=(
+            "Upper bound on parallel download/conversion workers (default auto). "
+            "In multi-GPU mode, values above the GPU count will run multiple workers per GPU."
+        ),
     ),
     overwrite: bool = typer.Option(
         False,
@@ -245,6 +258,12 @@ def export_batch_command(
         4.0,
         "--image-resolution-scale",
         help="Image resolution scale for Docling.",
+    ),
+    image_processing: str = typer.Option(
+        "embed",
+        "--image-processing",
+        case_sensitive=False,
+        help="How to handle images in Markdown output (embed, placeholder, drop).",
     ),
     use_multi_gpu: bool = typer.Option(
         True,
@@ -285,6 +304,7 @@ def export_batch_command(
             force_full_page_ocr=force_full_page_ocr,
             do_picture_description=do_picture_description,
             image_resolution_scale=image_resolution_scale,
+            image_processing=image_processing,
             use_multi_gpu=use_multi_gpu,
         )
     except (FileNotFoundError, ValueError) as exc:
